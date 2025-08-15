@@ -16,6 +16,7 @@ MedImageParse is a healthcare AI model available in Azure AI Foundry. It enables
 ## Video
 
 - [Life Science Models in Azure AI Foundry](https://youtu.be/d38ATvjnO78)
+- [MedImageParse model in Azure AI Foundry](https://youtu.be/nLVptjgncQg)
 
 ## Usage Instructions
 
