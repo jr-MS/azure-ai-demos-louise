@@ -37,7 +37,7 @@ This folder contains a demo for using the Azure AI Deep Research Agent. The scri
 - `PROJECT_ENDPOINT`: Your Azure AI Project endpoint URL.
 - `BING_RESOURCE_NAME`: The Bing resource name for grounding.
 - `DEEP_RESEARCH_MODEL_DEPLOYMENT_NAME`: The deployment name of your Deep Research model.
-- `MODEL_DEPLOYMENT_NAME`: The deployment name of the main model for the agent.
+- `MODEL_DEPLOYMENT_NAME`: The deployment name of the main model for the agent (like GPT4-o).
 
 ## 📄 Output
 - `research_summary.md`: The generated research summary with references.
