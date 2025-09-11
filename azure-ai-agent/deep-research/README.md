@@ -15,7 +15,10 @@ This folder contains a demo for using the Azure AI Deep Research Agent. The scri
    PROJECT_ENDPOINT=your_project_endpoint
    BING_RESOURCE_NAME=your_bing_resource_name
    DEEP_RESEARCH_MODEL_DEPLOYMENT_NAME=your_deep_research_model
-   MODEL_DEPLOYMENT_NAME=your_model_deployment
+   
+   # This is a gpt model used to orchestrate and trigger o3-deep-research model, like gpt-4o or gpt-4.1
+   MODEL_DEPLOYMENT_NAME=your_model_deployment 
+ 
    ```
    > Replace each value with your actual Azure resource/configuration.
 
