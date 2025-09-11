@@ -1,0 +1,954 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket 负载均衡策略动画演示</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 30px;
+            font-size: 2em;
+        }
+        
+        .demo-area {
+            display: grid;
+            grid-template-columns: 200px 1fr 300px;
+            gap: 30px;
+            margin-bottom: 30px;
+        }
+        
+        /* 客户端区域 */
+        .client-section {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        
+        .client {
+            background: #4CAF50;
+            color: white;
+            padding: 15px;
+            border-radius: 10px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .client:hover {
+            transform: scale(1.05);
+            box-shadow: 0 5px 15px rgba(76, 175, 80, 0.4);
+        }
+        
+        .client.active {
+            animation: pulse 0.6s;
+            background: #66BB6A;
+            box-shadow: 0 0 20px rgba(76, 175, 80, 0.6);
+        }
+        
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+            100% { transform: scale(1); }
+        }
+        
+        /* APIM 区域 */
+        .apim-section {
+            background: #f5f5f5;
+            border-radius: 15px;
+            padding: 20px;
+            position: relative;
+        }
+        
+        .apim-header {
+            background: #2196F3;
+            color: white;
+            padding: 10px;
+            border-radius: 8px;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        
+        .apim-content {
+            display: grid;
+            grid-template-rows: auto auto auto;
+            gap: 15px;
+        }
+        
+        .cache-area {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            border: 2px solid #e0e0e0;
+        }
+        
+        .cache-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 5px 0;
+            border-bottom: 1px solid #eee;
+        }
+        
+        .cache-item:last-child {
+            border-bottom: none;
+        }
+        
+        .round-robin-indicator {
+            background: #FF9800;
+            color: white;
+            padding: 10px;
+            border-radius: 8px;
+            text-align: center;
+            margin: 10px 0;
+        }
+        
+        .auth-token {
+            background: #9C27B0;
+            color: white;
+            padding: 10px;
+            border-radius: 8px;
+            text-align: center;
+            font-size: 12px;
+            word-break: break-all;
+        }
+        
+        /* 后端区域 */
+        .backends-section {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        
+        .backend {
+            background: #607D8B;
+            color: white;
+            padding: 15px;
+            border-radius: 10px;
+            transition: all 0.3s;
+            position: relative;
+        }
+        
+        .backend.healthy {
+            background: #4CAF50;
+        }
+        
+        .backend.throttling {
+            background: #f44336;
+            opacity: 0.7;
+        }
+        
+        .backend.selected {
+            box-shadow: 0 0 20px rgba(76, 175, 80, 0.8);
+            transform: scale(1.05);
+        }
+        
+        .backend-name {
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        
+        .backend-status {
+            font-size: 12px;
+            margin-top: 5px;
+        }
+        
+        .backend-retry {
+            font-size: 11px;
+            color: #ffeb3b;
+            margin-top: 3px;
+        }
+        
+        /* 请求动画 */
+        .request-arrow {
+            position: absolute;
+            width: 30px;
+            height: 30px;
+            background: #FFC107;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            z-index: 100;
+            opacity: 0;
+            pointer-events: none;
+        }
+        
+        .request-arrow.animate {
+            animation: moveRequest 2s ease-in-out;
+        }
+        
+        @keyframes moveRequest {
+            0% {
+                opacity: 0;
+                transform: translateX(0);
+            }
+            10% {
+                opacity: 1;
+            }
+            90% {
+                opacity: 1;
+            }
+            100% {
+                opacity: 0;
+                transform: translateX(1000px);
+            }
+        }
+        
+        /* 控制面板 */
+        .control-panel {
+            background: #f9f9f9;
+            padding: 20px;
+            border-radius: 10px;
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s;
+            font-weight: 500;
+        }
+        
+        .btn-primary {
+            background: #2196F3;
+            color: white;
+        }
+        
+        .btn-danger {
+            background: #f44336;
+            color: white;
+        }
+        
+        .btn-success {
+            background: #4CAF50;
+            color: white;
+        }
+        
+        .btn-warning {
+            background: #FF9800;
+            color: white;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+        }
+        
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        /* 日志区域 */
+        .log-area {
+            margin-top: 20px;
+            background: #263238;
+            color: #00ff00;
+            padding: 15px;
+            border-radius: 10px;
+            height: 200px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+        }
+        
+        .log-entry {
+            margin-bottom: 5px;
+            padding: 3px 0;
+            border-bottom: 1px solid #37474f;
+        }
+        
+        .log-time {
+            color: #FFC107;
+            margin-right: 10px;
+        }
+        
+        /* 统计信息 */
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+        
+        .stat-card {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #2196F3;
+        }
+        
+        .stat-label {
+            font-size: 12px;
+            color: #666;
+            margin-top: 5px;
+        }
+        
+        /* 流程说明 */
+        .flow-diagram {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            margin-top: 20px;
+        }
+        
+        .flow-step {
+            display: flex;
+            align-items: center;
+            margin-bottom: 15px;
+            opacity: 0.5;
+            transition: all 0.3s;
+        }
+        
+        .flow-step.active {
+            opacity: 1;
+            transform: translateX(10px);
+        }
+        
+        .flow-number {
+            background: #2196F3;
+            color: white;
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-right: 15px;
+            font-weight: bold;
+        }
+        
+        .flow-text {
+            flex: 1;
+        }
+        
+        .processing-indicator {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0,0,0,0.8);
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            z-index: 1000;
+        }
+        
+        .processing-indicator.show {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔄 Azure APIM WebSocket 负载均衡策略动画演示</h1>
+        
+        <div class="demo-area">
+            <!-- 客户端 -->
+            <div class="client-section">
+                <h3 style="text-align: center; margin-bottom: 10px;">客户端</h3>
+                <div class="client" id="client1" onclick="sendRequestFromClient(1)">
+                    <div>📱 Client 1</div>
+                    <small>点击发送请求</small>
+                </div>
+                <div class="client" id="client2" onclick="sendRequestFromClient(2)">
+                    <div>💻 Client 2</div>
+                    <small>点击发送请求</small>
+                </div>
+                <div class="client" id="client3" onclick="sendRequestFromClient(3)">
+                    <div>🖥️ Client 3</div>
+                    <small>点击发送请求</small>
+                </div>
+            </div>
+            
+            <!-- APIM -->
+            <div class="apim-section">
+                <div class="apim-header">
+                    <h3>Azure API Management</h3>
+                    <small>WebSocket Gateway</small>
+                </div>
+                
+                <div class="apim-content">
+                    <!-- 缓存状态 -->
+                    <div class="cache-area">
+                        <h4 style="margin-bottom: 10px;">📦 缓存状态</h4>
+                        <div class="cache-item">
+                            <span>轮询索引:</span>
+                            <span id="roundRobinIndex">0</span>
+                        </div>
+                        <div class="cache-item">
+                            <span>健康后端数:</span>
+                            <span id="healthyCount">2</span>
+                        </div>
+                    </div>
+                    
+                    <!-- 轮询指示器 -->
+                    <div class="round-robin-indicator">
+                        <div>🎯 当前选择</div>
+                        <div id="currentSelection" style="font-size: 18px; margin-top: 5px;">Backend 1</div>
+                    </div>
+                    
+                    <!-- 认证令牌 -->
+                    <div class="auth-token">
+                        <div style="margin-bottom: 5px;">🔐 Managed Identity Token</div>
+                        <div id="tokenDisplay">Bearer eyJ0eXAiOiJKV1QiLCJhbGc...</div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 后端服务 -->
+            <div class="backends-section">
+                <h3 style="text-align: center; margin-bottom: 10px;">后端服务</h3>
+                <div class="backend healthy" id="backend0">
+                    <div class="backend-name">🟢 Backend 1</div>
+                    <div style="font-size: 11px;">foundry1.azure.com</div>
+                    <div class="backend-status">状态: 健康</div>
+                    <div class="backend-retry" id="retry0"></div>
+                </div>
+                <div class="backend healthy" id="backend1">
+                    <div class="backend-name">🟢 Backend 2</div>
+                    <div style="font-size: 11px;">foundry2.azure.com</div>
+                    <div class="backend-status">状态: 健康</div>
+                    <div class="backend-retry" id="retry1"></div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 控制面板 -->
+        <div class="control-panel">
+            <button class="btn btn-primary" id="autoDemoBtn" onclick="autoDemo()">🎬 自动演示</button>
+            <button class="btn btn-danger" onclick="simulateThrottling(0)">❌ 触发 Backend 1 限流</button>
+            <button class="btn btn-danger" onclick="simulateThrottling(1)">❌ 触发 Backend 2 限流</button>
+            <button class="btn btn-success" onclick="recoverBackend(0)">✅ 恢复 Backend 1</button>
+            <button class="btn btn-success" onclick="recoverBackend(1)">✅ 恢复 Backend 2</button>
+            <button class="btn btn-warning" onclick="resetDemo()">🔄 重置演示</button>
+        </div>
+        
+        <!-- 统计信息 -->
+        <div class="stats">
+            <div class="stat-card">
+                <div class="stat-value" id="totalRequests">0</div>
+                <div class="stat-label">总请求数</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="backend1Requests">0</div>
+                <div class="stat-label">Backend 1 请求</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="backend2Requests">0</div>
+                <div class="stat-label">Backend 2 请求</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="failedRequests">0</div>
+                <div class="stat-label">失败请求</div>
+            </div>
+        </div>
+        
+        <!-- 流程步骤 -->
+        <div class="flow-diagram">
+            <h3 style="margin-bottom: 15px;">🔄 处理流程</h3>
+            <div class="flow-step" id="step1">
+                <div class="flow-number">1</div>
+                <div class="flow-text">客户端发起 WebSocket 连接请求</div>
+            </div>
+            <div class="flow-step" id="step2">
+                <div class="flow-number">2</div>
+                <div class="flow-text">APIM 从缓存读取后端列表和轮询索引</div>
+            </div>
+            <div class="flow-step" id="step3">
+                <div class="flow-number">3</div>
+                <div class="flow-text">获取 Managed Identity Token 进行身份验证</div>
+            </div>
+            <div class="flow-step" id="step4">
+                <div class="flow-number">4</div>
+                <div class="flow-text">检查并更新过期的限流状态</div>
+            </div>
+            <div class="flow-step" id="step5">
+                <div class="flow-number">5</div>
+                <div class="flow-text">使用轮询算法选择健康的后端</div>
+            </div>
+            <div class="flow-step" id="step6">
+                <div class="flow-number">6</div>
+                <div class="flow-text">转发请求到选中的后端</div>
+            </div>
+            <div class="flow-step" id="step7">
+                <div class="flow-number">7</div>
+                <div class="flow-text">处理响应并更新后端状态</div>
+            </div>
+        </div>
+        
+        <!-- 日志 -->
+        <div class="log-area" id="logArea">
+            <div class="log-entry">
+                <span class="log-time">[00:00:00]</span>
+                <span>系统初始化完成，等待请求...</span>
+            </div>
+        </div>
+    </div>
+    
+    <div class="request-arrow" id="requestArrow">➡️</div>
+    <div class="processing-indicator" id="processingIndicator">
+        <div>⏳ 正在处理请求...</div>
+    </div>
+    
+    <script>
+        // 状态管理
+        let state = {
+            roundRobinIndex: 0,
+            backends: [
+                { healthy: true, throttlingUntil: null, requests: 0 },
+                { healthy: true, throttlingUntil: null, requests: 0 }
+            ],
+            totalRequests: 0,
+            failedRequests: 0,
+            isProcessing: false,
+            countdownIntervals: {}
+        };
+        
+        // 添加日志
+        function addLog(message, type = 'info') {
+            const logArea = document.getElementById('logArea');
+            const time = new Date().toLocaleTimeString();
+            const logEntry = document.createElement('div');
+            logEntry.className = 'log-entry';
+            
+            let color = '#00ff00';
+            if (type === 'error') color = '#ff5252';
+            if (type === 'warning') color = '#FFC107';
+            if (type === 'success') color = '#4CAF50';
+            
+            logEntry.innerHTML = `
+                <span class="log-time">[${time}]</span>
+                <span style="color: ${color}">${message}</span>
+            `;
+            logArea.appendChild(logEntry);
+            logArea.scrollTop = logArea.scrollHeight;
+        }
+        
+        // 更新流程步骤
+        function activateStep(stepNumber) {
+            // 清除所有活动状态
+            for (let i = 1; i <= 7; i++) {
+                document.getElementById(`step${i}`).classList.remove('active');
+            }
+            // 激活当前步骤
+            if (stepNumber > 0) {
+                document.getElementById(`step${stepNumber}`).classList.add('active');
+            }
+        }
+        
+        // 从客户端发送请求（手动点击）
+        function sendRequestFromClient(clientId) {
+            sendRequest(`Client ${clientId}`, clientId);
+        }
+        
+        // 发送请求（核心函数）
+        async function sendRequest(clientName, clientId = null) {
+            if (state.isProcessing) {
+                addLog(`⚠️ 正在处理其他请求，请稍候...`, 'warning');
+                return;
+            }
+            
+            state.isProcessing = true;
+            state.totalRequests++;
+            document.getElementById('totalRequests').textContent = state.totalRequests;
+            
+            // 动画客户端
+            const clients = document.querySelectorAll('.client');
+            clients.forEach(c => c.classList.remove('active'));
+            
+            if (clientId) {
+                document.getElementById(`client${clientId}`).classList.add('active');
+            } else {
+                // 自动演示时随机选择一个客户端高亮
+                const randomClient = Math.floor(Math.random() * 3) + 1;
+                document.getElementById(`client${randomClient}`).classList.add('active');
+            }
+            
+            addLog(`📤 ${clientName} 发起 WebSocket 连接请求`);
+            activateStep(1);
+            
+            await sleep(500);
+            
+            // 步骤2: 读取缓存
+            activateStep(2);
+            addLog(`📖 APIM 读取缓存: roundRobinIndex=${state.roundRobinIndex}`);
+            await sleep(500);
+            
+            // 步骤3: 获取Token
+            activateStep(3);
+            addLog(`🔐 获取 Managed Identity Token`);
+            document.getElementById('tokenDisplay').textContent = `Bearer ${generateToken()}`;
+            await sleep(500);
+            
+            // 步骤4: 检查限流状态
+            activateStep(4);
+            checkThrottlingStatus();
+            await sleep(500);
+            
+            // 步骤5: 选择后端
+            activateStep(5);
+            const selectedBackend = selectBackend();
+            
+            if (selectedBackend === -1) {
+                addLog(`❌ 所有后端都在限流中，请求失败`, 'error');
+                state.failedRequests++;
+                document.getElementById('failedRequests').textContent = state.failedRequests;
+                state.isProcessing = false;
+                activateStep(0);
+                clients.forEach(c => c.classList.remove('active'));
+                return;
+            }
+            
+            addLog(`🎯 选择 Backend ${selectedBackend + 1} (轮询索引: ${state.roundRobinIndex})`);
+            document.getElementById('currentSelection').textContent = `Backend ${selectedBackend + 1}`;
+            
+            // 高亮选中的后端
+            document.querySelectorAll('.backend').forEach(b => b.classList.remove('selected'));
+            document.getElementById(`backend${selectedBackend}`).classList.add('selected');
+            
+            await sleep(500);
+            
+            // 步骤6: 转发请求
+            activateStep(6);
+            addLog(`➡️ 转发请求到 Backend ${selectedBackend + 1}`);
+            
+            // 请求动画
+            animateRequest();
+            await sleep(1000);
+            
+            // 步骤7: 处理响应
+            activateStep(7);
+            
+            // 模拟响应（85%成功率）
+            const success = Math.random() > 0.15;
+            
+            if (success) {
+                addLog(`✅ Backend ${selectedBackend + 1} 响应成功 (101 Switching Protocols)`, 'success');
+                state.backends[selectedBackend].requests++;
+                document.getElementById(`backend${selectedBackend + 1}Requests`).textContent = 
+                    state.backends[selectedBackend].requests;
+            } else {
+                // 模拟限流
+                simulateThrottling(selectedBackend, false);
+                addLog(`⚠️ Backend ${selectedBackend + 1} 返回 429 限流错误`, 'error');
+                state.failedRequests++;
+                document.getElementById('failedRequests').textContent = state.failedRequests;
+            }
+            
+            await sleep(500);
+            activateStep(0);
+            
+            // 清除高亮
+            setTimeout(() => {
+                document.querySelectorAll('.backend').forEach(b => b.classList.remove('selected'));
+                clients.forEach(c => c.classList.remove('active'));
+            }, 500);
+            
+            state.isProcessing = false;
+        }
+        
+        // 选择后端
+        function selectBackend() {
+            const healthyBackends = [];
+            
+            // 收集健康的后端
+            state.backends.forEach((backend, index) => {
+                if (backend.healthy) {
+                    healthyBackends.push(index);
+                }
+            });
+            
+            if (healthyBackends.length === 0) {
+                return -1; // 没有健康的后端
+            }
+            
+            // 轮询选择
+            const selected = healthyBackends[state.roundRobinIndex % healthyBackends.length];
+            state.roundRobinIndex = (state.roundRobinIndex + 1) % healthyBackends.length;
+            
+            // 更新显示
+            document.getElementById('roundRobinIndex').textContent = state.roundRobinIndex;
+            document.getElementById('healthyCount').textContent = healthyBackends.length;
+            
+            return selected;
+        }
+        
+        // 检查限流状态
+        function checkThrottlingStatus() {
+            const now = Date.now();
+            let recoveredAny = false;
+            
+            state.backends.forEach((backend, index) => {
+                if (!backend.healthy && backend.throttlingUntil && now >= backend.throttlingUntil) {
+                    recoverBackend(index, false);
+                    recoveredAny = true;
+                }
+            });
+            
+            if (recoveredAny) {
+                addLog(`🔄 检查限流状态，有后端已恢复`);
+            }
+        }
+        
+        // 模拟限流
+        function simulateThrottling(backendIndex, manual = true) {
+            if (!state.backends[backendIndex].healthy) {
+                if (manual) addLog(`⚠️ Backend ${backendIndex + 1} 已经在限流中`, 'warning');
+                return;
+            }
+            
+            state.backends[backendIndex].healthy = false;
+            state.backends[backendIndex].throttlingUntil = Date.now() + 30000; // 30秒后恢复
+            
+            const backendEl = document.getElementById(`backend${backendIndex}`);
+            backendEl.classList.remove('healthy');
+            backendEl.classList.add('throttling');
+            backendEl.querySelector('.backend-name').innerHTML = `🔴 Backend ${backendIndex + 1}`;
+            backendEl.querySelector('.backend-status').textContent = '状态: 限流中';
+            
+            // 清除之前的倒计时
+            if (state.countdownIntervals[backendIndex]) {
+                clearInterval(state.countdownIntervals[backendIndex]);
+            }
+            
+            // 显示恢复倒计时
+            const retryEl = document.getElementById(`retry${backendIndex}`);
+            let countdown = 30;
+            
+            state.countdownIntervals[backendIndex] = setInterval(() => {
+                if (state.backends[backendIndex].healthy) {
+                    clearInterval(state.countdownIntervals[backendIndex]);
+                    retryEl.textContent = '';
+                    return;
+                }
+                
+                retryEl.textContent = `恢复倒计时: ${countdown}秒`;
+                countdown--;
+                
+                if (countdown < 0) {
+                    clearInterval(state.countdownIntervals[backendIndex]);
+                    recoverBackend(backendIndex, false);
+                }
+            }, 1000);
+            
+            if (manual) {
+                addLog(`🚫 Backend ${backendIndex + 1} 进入限流状态 (30秒后恢复)`, 'error');
+            }
+            
+            // 更新健康后端数
+            const healthyCount = state.backends.filter(b => b.healthy).length;
+            document.getElementById('healthyCount').textContent = healthyCount;
+        }
+        
+        // 恢复后端
+        function recoverBackend(backendIndex, manual = true) {
+            if (state.backends[backendIndex].healthy) {
+                if (manual) addLog(`✅ Backend ${backendIndex + 1} 已经是健康状态`, 'info');
+                return;
+            }
+            
+            state.backends[backendIndex].healthy = true;
+            state.backends[backendIndex].throttlingUntil = null;
+            
+            const backendEl = document.getElementById(`backend${backendIndex}`);
+            backendEl.classList.remove('throttling');
+            backendEl.classList.add('healthy');
+            backendEl.querySelector('.backend-name').innerHTML = `🟢 Backend ${backendIndex + 1}`;
+            backendEl.querySelector('.backend-status').textContent = '状态: 健康';
+            document.getElementById(`retry${backendIndex}`).textContent = '';
+            
+            // 清除倒计时
+            if (state.countdownIntervals[backendIndex]) {
+                clearInterval(state.countdownIntervals[backendIndex]);
+            }
+            
+            if (manual) {
+                addLog(`✅ Backend ${backendIndex + 1} 已恢复健康状态`, 'success');
+            }
+            
+            // 更新健康后端数
+            const healthyCount = state.backends.filter(b => b.healthy).length;
+            document.getElementById('healthyCount').textContent = healthyCount;
+        }
+        
+        // 生成模拟Token
+        function generateToken() {
+            const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+            let token = 'eyJ0eXAiOiJKV1QiLCJhbGc...';
+            for (let i = 0; i < 10; i++) {
+                token += chars.charAt(Math.floor(Math.random() * chars.length));
+            }
+            return token;
+        }
+        
+        // 请求动画
+        function animateRequest() {
+            const arrow = document.getElementById('requestArrow');
+            arrow.classList.remove('animate');
+            void arrow.offsetWidth; // 触发重排
+            arrow.classList.add('animate');
+        }
+        
+        // 自动演示
+        async function autoDemo() {
+            const btn = document.getElementById('autoDemoBtn');
+            btn.disabled = true;
+            
+            addLog(`🎬 开始自动演示`, 'success');
+            
+            // 场景1: 正常负载均衡
+            addLog(`📝 场景1: 正常负载均衡`);
+            await sleep(1000);
+            
+            for (let i = 0; i < 4; i++) {
+                await sendRequest(`Auto Client ${i + 1}`);
+                await sleep(2000);
+            }
+            
+            // 场景2: Backend 1 故障
+            addLog(`📝 场景2: 模拟 Backend 1 故障`);
+            await sleep(1000);
+            simulateThrottling(0);
+            await sleep(1000);
+            
+            // 继续发送请求
+            for (let i = 0; i < 3; i++) {
+                await sendRequest(`Auto Client ${i + 5}`);
+                await sleep(2000);
+            }
+            
+            // 场景3: 所有后端故障
+            addLog(`📝 场景3: 模拟所有后端故障`);
+            await sleep(1000);
+            simulateThrottling(1);
+            await sleep(1000);
+            
+            // 尝试发送请求（会失败）
+            await sendRequest(`Auto Client 8`);
+            await sleep(2000);
+            
+            // 恢复后端
+            addLog(`📝 场景4: 恢复后端`);
+            await sleep(1000);
+            recoverBackend(0);
+            recoverBackend(1);
+            await sleep(1000);
+            
+            // 继续正常请求
+            for (let i = 0; i < 2; i++) {
+                await sendRequest(`Auto Client ${i + 9}`);
+                await sleep(2000);
+            }
+            
+            addLog(`🎬 自动演示完成`, 'success');
+            btn.disabled = false;
+        }
+        
+        // 重置演示
+        function resetDemo() {
+            // 清除所有倒计时
+            Object.values(state.countdownIntervals).forEach(interval => clearInterval(interval));
+            
+            state = {
+                roundRobinIndex: 0,
+                backends: [
+                    { healthy: true, throttlingUntil: null, requests: 0 },
+                    { healthy: true, throttlingUntil: null, requests: 0 }
+                ],
+                totalRequests: 0,
+                failedRequests: 0,
+                isProcessing: false,
+                countdownIntervals: {}
+            };
+            
+            // 重置显示
+            document.getElementById('roundRobinIndex').textContent = '0';
+            document.getElementById('healthyCount').textContent = '2';
+            document.getElementById('currentSelection').textContent = 'Backend 1';
+            document.getElementById('totalRequests').textContent = '0';
+            document.getElementById('backend1Requests').textContent = '0';
+            document.getElementById('backend2Requests').textContent = '0';
+            document.getElementById('failedRequests').textContent = '0';
+            
+            // 重置后端状态
+            for (let i = 0; i < 2; i++) {
+                const backendEl = document.getElementById(`backend${i}`);
+                backendEl.classList.remove('throttling', 'selected');
+                backendEl.classList.add('healthy');
+                backendEl.querySelector('.backend-name').innerHTML = `🟢 Backend ${i + 1}`;
+                backendEl.querySelector('.backend-status').textContent = '状态: 健康';
+                document.getElementById(`retry${i}`).textContent = '';
+            }
+            
+            // 清除客户端高亮
+            document.querySelectorAll('.client').forEach(c => c.classList.remove('active'));
+            
+            // 清除流程步骤高亮
+            activateStep(0);
+            
+            // 清除日志
+            document.getElementById('logArea').innerHTML = `
+                <div class="log-entry">
+                    <span class="log-time">[${new Date().toLocaleTimeString()}]</span>
+                    <span>系统已重置，等待请求...</span>
+                </div>
+            `;
+            
+            addLog(`🔄 系统已重置`, 'success');
+        }
+        
+        // 工具函数
+        function sleep(ms) {
+            return new Promise(resolve => setTimeout(resolve, ms));
+        }
+        
+        // 初始化
+        document.addEventListener('DOMContentLoaded', () => {
+            addLog(`✅ WebSocket 负载均衡演示系统启动`, 'success');
+            addLog(`💡 提示: 点击客户端发送请求，或使用控制按钮进行演示`);
+        });
+    </script>
+</body>
+</html>

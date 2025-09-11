@@ -1,0 +1,5 @@
+aiohttp
+openai
+openai[realtime]
+fastrtc[vad]
+azure-identity

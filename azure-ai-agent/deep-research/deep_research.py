@@ -4,7 +4,9 @@ from azure.ai.projects import AIProjectClient
 from azure.identity import DefaultAzureCredential
 from azure.ai.agents import AgentsClient
 from azure.ai.agents.models import DeepResearchTool, MessageRole, ThreadMessage
+from dotenv import load_dotenv
 
+load_dotenv()   
 
 def fetch_and_print_new_agent_response(
     thread_id: str,
@@ -72,12 +74,13 @@ deep_research_tool = DeepResearchTool(
 with project_client:
 
     with project_client.agents as agents_client:
-
+        with open("deep_research_instructions.md", "r", encoding="utf-8") as f:
+            instruction_md = f.read()
         # Create a new agent that has the Deep Research tool attached.
         agent = agents_client.create_agent(
             model=os.environ["MODEL_DEPLOYMENT_NAME"],
             name="deep-research-agent",
-            instructions="You are a helpful Agent that assists in researching scientific topics.",
+            instructions=instruction_md,
             tools=deep_research_tool.definitions,
         )
         print(f"Created agent, ID: {agent.id}")
@@ -86,7 +89,7 @@ with project_client:
         thread = agents_client.threads.create()
         print(f"Created thread, ID: {thread.id}")
 
-        user_content = "Research data regarding the investment in renewable energy, energy capacity, and energy consumption of countries in Sub-Saharan Africa"
+        user_content = "请帮我调研特应性皮炎AD相关的法律法规，重点分析MRCT上市要求、招募患者要求、临床设计要求，并按照要求输出策略推荐表。"
         last_message_id = None
         while True:
             message = agents_client.messages.create(

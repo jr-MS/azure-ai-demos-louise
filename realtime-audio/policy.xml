@@ -1,0 +1,165 @@
+<policies>
+    <inbound>
+        <base />
+        <!-- 读取或初始化后端列表 -->
+        <cache-lookup-value key="@("listBackends-" + context.Api.Id)" variable-name="listBackends" />
+        <choose>
+            <when condition="@(context.Variables.ContainsKey("listBackends") == false)">
+                <set-variable name="listBackends" value="@{
+                    JArray backends = new JArray();
+                    
+                    // Backend 1
+                    backends.Add(new JObject()
+                    {
+                        { "url", "wss://<your-first-backend>.cognitiveservices.azure.com/openai/realtime" },
+                        { "priority", 1 },
+                        { "isThrottling", false },
+                        { "retryAfter", DateTime.MinValue }
+                    });
+                    
+                    // Backend 2 - 请替换为你的第二个后端
+                    backends.Add(new JObject()
+                    {
+                        { "url", "wss://<your-second-backend>.cognitiveservices.azure.com/openai/realtime" },
+                        { "priority", 1 },
+                        { "isThrottling", false },
+                        { "retryAfter", DateTime.MinValue }
+                    });
+                    
+                    return backends;
+                }" />
+                <cache-store-value key="@("listBackends-" + context.Api.Id)" value="@((JArray)context.Variables["listBackends"])" duration="60" />
+            </when>
+        </choose>
+        <!-- 读取轮询索引 - 统一处理为整数 -->
+        <cache-lookup-value key="@("roundRobinIndex-" + context.Api.Id)" variable-name="roundRobinIndexStr" />
+        <set-variable name="roundRobinIndex" value="@{
+            if (!context.Variables.ContainsKey("roundRobinIndexStr"))
+            {
+                return 0;
+            }
+            
+            object val = context.Variables["roundRobinIndexStr"];
+            if (val == null)
+            {
+                return 0;
+            }
+            
+            // 尝试转换为整数
+            int result = 0;
+            if (val is string strVal)
+            {
+                int.TryParse(strVal, out result);
+            }
+            else if (val is int intVal)
+            {
+                result = intVal;
+            }
+            
+            return result;
+        }" />
+        <!-- 获取 Managed Identity Token -->
+        <authentication-managed-identity resource="https://cognitiveservices.azure.com" output-token-variable-name="managed-id-access-token" ignore-error="false" />
+        <set-header name="Authorization" exists-action="override">
+            <value>@("Bearer " + (string)context.Variables["managed-id-access-token"])</value>
+        </set-header>
+        <!-- Token 指标 -->
+        <azure-openai-emit-token-metric namespace="openai">
+            <dimension name="Client IP" value="@(context.Request.IpAddress)" />
+            <dimension name="API ID" value="@(context.Api.Id)" />
+            <dimension name="User ID" value="@(context.Request.Headers.GetValueOrDefault("x-user-id", "N/A"))" />
+        </azure-openai-emit-token-metric>
+        <!-- 选择后端（轮询机制） -->
+        <set-variable name="selectedBackendInfo" value="@{
+            JArray backends = (JArray)context.Variables["listBackends"];
+            
+            // 安全地获取当前索引
+            int currentIndex = 0;
+            if (context.Variables.ContainsKey("roundRobinIndex"))
+            {
+                object idxObj = context.Variables["roundRobinIndex"];
+                if (idxObj is int)
+                {
+                    currentIndex = (int)idxObj;
+                }
+            }
+            
+            // 更新过期的 throttling 状态
+            for (int i = 0; i < backends.Count; i++)
+            {
+                JObject backend = (JObject)backends[i];
+                if (backend.Value<bool>("isThrottling") && DateTime.Now >= backend.Value<DateTime>("retryAfter"))
+                {
+                    backend["isThrottling"] = false;
+                    backend["retryAfter"] = DateTime.MinValue;
+                }
+            }
+            
+            // 收集所有健康的后端
+            List<int> healthyBackends = new List<int>();
+            for (int i = 0; i < backends.Count; i++)
+            {
+                if (!((JObject)backends[i]).Value<bool>("isThrottling"))
+                {
+                    healthyBackends.Add(i);
+                }
+            }
+            
+            // 如果有健康的后端，使用轮询选择
+            if (healthyBackends.Count > 0)
+            {
+                // 轮询：选择下一个健康的后端
+                int selectedIdx = healthyBackends[currentIndex % healthyBackends.Count];
+                
+                // 更新轮询索引
+                currentIndex = (currentIndex + 1) % healthyBackends.Count;
+                
+                JObject selected = (JObject)backends[selectedIdx];
+                return new JObject()
+                {
+                    { "url", selected.Value<string>("url") },
+                    { "index", selectedIdx },
+                    { "nextRoundRobinIndex", currentIndex }
+                };
+            }
+            
+            // 如果所有都在 throttling，使用第一个
+            return new JObject()
+            {
+                { "url", ((JObject)backends[0]).Value<string>("url") },
+                { "index", 0 },
+                { "nextRoundRobinIndex", 0 }
+            };
+        }" />
+        <!-- 更新轮询索引到缓存（存储为字符串） -->
+        <cache-store-value key="@("roundRobinIndex-" + context.Api.Id)" value="@(((JObject)context.Variables["selectedBackendInfo"]).Value<int>("nextRoundRobinIndex").ToString())" duration="60" />
+        <!-- 设置选中的后端 URL 和索引 -->
+        <set-variable name="selectedBackendUrl" value="@(((JObject)context.Variables["selectedBackendInfo"]).Value<string>("url"))" />
+        <set-variable name="selectedBackendIndex" value="@(((JObject)context.Variables["selectedBackendInfo"]).Value<int>("index"))" />
+        <!-- 设置后端服务 -->
+        <set-backend-service base-url="@((string)context.Variables["selectedBackendUrl"])" />
+    </inbound>
+    <backend>
+        <base />
+    </backend>
+    <outbound>
+        <base />
+        <!-- 显示使用的后端（调试用，生产环境可删除） -->
+        <set-header name="x-backend-used" exists-action="override">
+            <value>@(context.Variables.GetValueOrDefault<string>("selectedBackendUrl", "unknown"))</value>
+        </set-header>
+        <set-header name="x-backend-index" exists-action="override">
+            <value>@(context.Variables.GetValueOrDefault<int>("selectedBackendIndex", -1).ToString())</value>
+        </set-header>
+    </outbound>
+    <on-error>
+        <base />
+        <!-- 添加错误详情以便调试 -->
+        <set-header name="x-error-message" exists-action="override">
+            <value>@(context.LastError?.Message ?? "Unknown error")</value>
+        </set-header>
+        <set-header name="x-error-source" exists-action="override">
+            <value>@(context.LastError?.Source ?? "Unknown source")</value>
+        </set-header>
+    </on-error>
+</policies>

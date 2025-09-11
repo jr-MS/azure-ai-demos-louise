@@ -55,9 +55,8 @@ with project_client:
         #     Click on 'YTD' at the top of that chart, and report the percent value that shows up just below it.
         #     """,
         content="""
-            Go to https://www.youtube.com, search for "eye diseases". Use filters to sort by most viewed.    
-Return the top 5 with: channel, title, short description, video length, link, views.
-""",
+            go to https://pubmed.ncbi.nlm.nih.gov/, find Antibiotic resistance related essays and give me all the links, title, abstract 
+            """,
     )
     print(f"Created message, ID: {message.id}")
 
